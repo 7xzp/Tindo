@@ -138,21 +138,6 @@
           <label class="form-label" for="input-raw-text">描述</label>
           <textarea class="form-textarea" id="input-raw-text" placeholder="例如: 下週五前幫小明看簡報，大概要花 1 小時" rows="3"></textarea>
         </div>
-        <div class="form-field" style="display:flex;gap:12px;">
-          <div style="flex:1;">
-            <label class="form-label" for="input-timezone">時區 / 地區</label>
-            <div style="display:flex;gap:6px;">
-              <select class="form-input" id="input-timezone" style="flex:1;">
-                <option value="Asia/Hong_Kong">香港 UTC+8</option>
-                <option value="Asia/Shanghai">肇慶 UTC+8</option>
-                <option value="Asia/Tokyo">東京 UTC+9</option>
-                <option value="Asia/Taipei">台北 UTC+8</option>
-                <option value="Asia/Singapore">新加坡 UTC+8</option>
-              </select>
-              <input type="text" class="form-input" id="input-timezone-custom" placeholder="自訂..." style="width:80px;">
-            </div>
-          </div>
-        </div>
         <div class="form-field">
           <label class="form-label">類型</label>
           <div class="segmented" role="tablist" id="input-event-type-segment">
@@ -166,6 +151,7 @@
         </div>
         <div class="modal-actions">
           <button class="btn btn-secondary" id="btn-cancel-input">取消</button>
+          <button class="btn btn-secondary" id="btn-manual-input">手動輸入</button>
           <button class="btn btn-primary" id="btn-parse">解析 ✨</button>
         </div>
       </div>

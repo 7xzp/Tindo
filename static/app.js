@@ -96,6 +96,23 @@ document.querySelectorAll("#input-event-type-segment .segmented-item").forEach(f
   });
 });
 
+document.getElementById("btn-manual-input").addEventListener("click", function() {
+  var now = new Date();
+  var pad = function(n) { return String(n).padStart(2,'0'); };
+  var todayStr = now.getFullYear() + '-' + pad(now.getMonth()+1) + '-' + pad(now.getDate());
+  var fakeData = {
+    title: document.getElementById("input-raw-text").value.trim() || "",
+    event_type: window._presetEventType || "ddl",
+    estimated_minutes: 60,
+    urgency: 3,
+    workload: 2,
+    ai_summary: "",
+    deadline: todayStr + "T23:59:00",
+  };
+  fillConfirmCard(fakeData);
+  showAddStep("confirm");
+});
+
 document.getElementById("btn-parse").addEventListener("click", doParse);
 
 async function doParse() {
@@ -106,7 +123,7 @@ async function doParse() {
     const resp = await fetch("/api/parse", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text, event_type: window._presetEventType || "ddl", timezone: document.getElementById("input-timezone").value }),
+      body: JSON.stringify({ text: text, event_type: window._presetEventType || "ddl" }),
     });
     const data = await resp.json();
     if (data.error && !data.title) {

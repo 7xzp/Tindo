@@ -131,7 +131,6 @@ function renderCell(dateStr, tier, isToday) {
   // 優先讀 localStorage 手動設定
   var savedLoc = localStorage.getItem('tindo_loc_' + dateStr);
   var locStr = savedLoc || (locations.size > 0 ? Array.from(locations).slice(0,2).join('/') : '香港');
-  if (locStr.length > 8) locStr = locStr.slice(0,7) + '…';
 
   return `
     <div class="cal-cell${todayClass}" data-date="${dateStr}">
@@ -242,86 +241,64 @@ function renderCellTimetable(date, tasks, tier) {
 }
 
 function renderCellRegions(timed) {
-  const GAP_THRESHOLD = 90;
-  const regions = [];
-  // 找最長任務作為基準
-  let maxDuration = 60;
-  timed.forEach(t => { maxDuration = Math.max(maxDuration, t.estimated_minutes || 60); });
+  var pxPerMin = 1.2;
+  var MIN_H = 48;
+  var GUTTER_W = 56;
 
-  for (const t of timed) {
-    const [h, m] = t.scheduled_time.split(':').map(Number);
-    const start = h * 60 + m;
-    const end = start + (t.estimated_minutes || 60);
+  var rows = [];
+  var prevEndMin = null;
 
-    const last = regions[regions.length - 1];
-    if (last && (start - last.lastEnd) <= GAP_THRESHOLD) {
-      last.lastEnd = Math.max(last.lastEnd, end);
-      last.tasks.push(t);
-    } else {
-      regions.push({ firstStart: start, lastEnd: end, tasks: [t] });
+  for (var i = 0; i < timed.length; i++) {
+    var t = timed[i];
+    var parts = t.scheduled_time.split(':').map(Number);
+    var tStart = parts[0] * 60 + (parts[1] || 0);
+    var tEnd = tStart + (t.estimated_minutes || 60);
+
+    // 空檔：上一個結束 < 這一個開始
+    var gapMt = 0;
+    if (prevEndMin !== null && tStart > prevEndMin) {
+      gapMt = (tStart - prevEndMin) * pxPerMin;
     }
+
+    var cardH = Math.max(MIN_H, (t.estimated_minutes || 60) * pxPerMin);
+    // 開始時間只在第一個或前面有空檔時顯示
+    var showStart = (i === 0) || (prevEndMin !== null && tStart > prevEndMin);
+    var doneClass = t.status === 'done' ? ' done' : '';
+
+    rows.push({
+      gapMt: gapMt,
+      cardH: cardH,
+      showStart: showStart,
+      startLabel: formatHHMM(tStart),
+      endLabel: formatHHMM(tEnd),
+      html: '<span class="ft-mobile-time">' + t.scheduled_time.slice(0,5) + '</span>'
+        + '<div class="ft-card event-' + t.event_type + ' urgency-' + (t.urgency || 3) + doneClass + '"'
+        + ' data-task-id="' + t.id + '"'
+        + ' style="min-height:' + cardH.toFixed(0) + 'px"'
+        + ' onclick="event.stopPropagation(); showTaskDetail(' + t.id + ')">'
+        + '<div class="ft-card-accent"></div>'
+        + '<span class="task-title">' + escapeHtml(t.title) + '</span>'
+        + '<span class="task-check" data-id="' + t.id + '" onclick="event.stopPropagation(); toggleTaskDone(' + t.id + ')"></span>'
+        + '</div>',
+    });
+
+    prevEndMin = tEnd;
   }
 
-  let html = '<div class="cal-cell-timetable regions">';
-
-  regions.forEach((region, i) => {
-    if (i > 0) {
-      const prev = regions[i - 1];
-      const gapMin = region.firstStart - prev.lastEnd;
-      const gapLabel = gapMin >= 60
-        ? `⋯ 略過 ${Math.round(gapMin / 60)}h`
-        : `⋯ 略過 ${gapMin}m`;
-      html += `<div class="region-gap"><span class="gap-label">${gapLabel}</span></div>`;
-    }
-
-    const startLabel = formatHHMM(region.firstStart);
-    const endLabel = formatHHMM(region.lastEnd);
-    const showEnd = (region.lastEnd - region.firstStart) >= 60;
-
-    const tasksHtml = region.tasks.map((t, ti) => {
-      const dur = t.estimated_minutes || 60;
-      const minH = 34;
-      const maxH = 80;
-      const h = Math.round(minH + ((dur - 15) / Math.max(maxDuration - 15, 1)) * (maxH - minH));
-      const heightPx = Math.max(minH, Math.min(maxH, h));
-      // 和前一個任務的間隔
-      let gapHtml = '';
-      if (ti > 0) {
-        const prev = region.tasks[ti - 1];
-        const [ph, pm] = prev.scheduled_time.split(':').map(Number);
-        const prevEnd = ph * 60 + pm + (prev.estimated_minutes || 60);
-        const [th, tm] = t.scheduled_time.split(':').map(Number);
-        const thisStart = th * 60 + tm;
-        const gapMin = thisStart - prevEnd;
-        if (gapMin >= 15) {
-          const gapLabel = gapMin >= 60 ? `${Math.floor(gapMin/60)}h${gapMin%60 > 0 ? gapMin%60+'m' : ''}` : `${gapMin}m`;
-          gapHtml = `<div class="task-gap">${gapLabel}</div>`;
-        }
-      }
-      return `
-      ${gapHtml}
-      <div class="cal-cell-task event-${t.event_type} urgency-${t.urgency || 3}${t.status === 'done' ? ' done' : ''}"
-           data-task-id="${t.id}"
-           style="min-height:${heightPx}px"
-           onclick="event.stopPropagation(); showTaskDetail(${t.id})">
-        <span class="task-title">${escapeHtml(t.title)}</span>
-        <span class="task-time">${t.scheduled_time.slice(0,5)}</span>
-        <span class="task-check" data-id="${t.id}" onclick="event.stopPropagation(); toggleTaskDone(${t.id})"></span>
-      </div>
-    `;
-    }).join('');
-
-    html += `
-      <div class="region">
-        <div class="region-time-axis">
-          <span class="region-time-start">${startLabel}</span>
-          ${showEnd ? `<span class="region-time-end">${endLabel}</span>` : ''}
-        </div>
-        <div class="region-content">${tasksHtml}</div>
-      </div>
-    `;
-  });
-
+  var html = '<div class="cal-cell-timetable flow-timeline">';
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var style = '';
+    if (r.gapMt > 0) style += 'margin-top:' + r.gapMt.toFixed(0) + 'px;';
+    if (i > 0) style += 'margin-top:' + (r.gapMt > 0 ? r.gapMt.toFixed(0) : 8) + 'px;';
+    html += '<div class="ft-row" style="min-height:' + r.cardH.toFixed(0) + 'px;' + style + '">'
+      + '<div class="ft-gutter">'
+      + (r.showStart ? '<span class="ft-time ft-time-start">' + r.startLabel + '</span>' : '')
+      + '<span class="ft-time ft-time-end">' + r.endLabel + '</span>'
+      + '</div>'
+      + '<div class="ft-card-wrap">' + r.html + '</div>'
+      + '</div>';
+  }
   html += '</div>';
   return html;
 }

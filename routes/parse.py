@@ -13,7 +13,6 @@ parse_bp = Blueprint("parse", __name__)
 def parse_input():
     data = request.get_json(silent=True) or {}
     text = data.get("text", "").strip()
-    tz = data.get("timezone", "Asia/Hong_Kong")
     if not text:
         return jsonify({"error": "請輸入文字"}), 400
 
@@ -21,7 +20,7 @@ def parse_input():
         cfg = get_llm_config()
         client = LLMClient(cfg)
         now = datetime.now(LOCAL_TZ).strftime("%Y-%m-%dT%H:%M:%S+08:00")
-        prompt = PROMPT_PARSE_INPUT.format(current_time=now, input_text=text, timezone=tz)
+        prompt = PROMPT_PARSE_INPUT.format(current_time=now, input_text=text)
         result = client.parse_json(prompt)
         return jsonify(result)
     except ValueError as e:

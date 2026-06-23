@@ -16,6 +16,7 @@ from routes.import_routes import import_bp
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
+    app.config["TEMPLATES_AUTO_RELOAD"] = True
 
     run_migrations()
 

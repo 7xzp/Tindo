@@ -8,3 +8,4 @@ __pycache__/
 restart_doubao.sh
 clip_*.png
 *.db
+cloudflared
