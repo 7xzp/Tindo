@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tindo 設定</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" sizes="1024x1024" href="/static/icon-1024.png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <span class="logo">Tindo</span>
+    <a href="/" class="view-tab">&larr; 返回主畫面</a>
+  </header>
+
+  <main style="max-width:640px;margin:40px auto;padding:0 24px;">
+    <section class="settings-section">
+      <h2>Notion 整合</h2>
+
+      <div class="status-row">
+        <span>連線狀態:</span>
+        <span id="notion-conn-status">檢查中...</span>
+        <button class="btn btn-secondary" id="btn-test-conn" style="padding:6px 14px;font-size:0.8rem;">測試連線</button>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:8px;margin:12px 0;font-size:0.9rem;cursor:pointer;">
+        <input type="checkbox" id="notion-sync-toggle">
+        啟用背景自動同步（每 5 分鐘）
+      </label>
+
+      <div class="status-row">
+        <span>最近同步:</span>
+        <span id="notion-last-sync">—</span>
+      </div>
+
+      <div class="btn-row" style="margin-top:16px;">
+        <button class="btn btn-primary" id="btn-sync-now">立即同步</button>
+        <button class="btn btn-secondary" id="btn-view-conflicts" style="font-size:0.82rem;">
+          查看衝突 (<span id="conflict-count">0</span>)
+        </button>
+      </div>
+
+      <div id="sync-result" style="margin-top:12px;font-size:0.82rem;color:var(--text-dim);"></div>
+
+      <p class="hint">
+        Tindo ⇄ Notion 雙向同步。本機 SQLite 是真相來源，Notion 是同步目標。
+        衝突時會自動建立副本，使用者自己決定保留哪個版本。
+      </p>
+    </section>
+
+    <section class="settings-section" style="margin-top:24px;">
+      <h2>Gmail 整合</h2>
+      <div class="status-row">
+        <span>授權狀態:</span>
+        <span id="gmail-auth-status">檢查中...</span>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btn-gmail-connect">連接 Gmail</button>
+        <button class="btn btn-secondary" id="btn-gmail-disconnect" style="display:none">登出</button>
+      </div>
+      <p class="hint">
+        第一次連接會跳出 Google 登入頁面。Google 會顯示「This app isn't verified」警告，
+        點 Advanced → Go to Tindo (unsafe) 繼續。
+      </p>
+      <label style="display:flex;align-items:center;gap:8px;margin:12px 0;font-size:0.9rem;cursor:pointer;">
+        <input type="checkbox" id="gmail-sync-toggle"> 啟用背景自動同步（每 30 分鐘）
+      </label>
+    </section>
+  </main>
+
+  <script>
+    // ── 測試連線 ──
+    document.getElementById('btn-test-conn').addEventListener('click', async () => {
+      const s = document.getElementById('notion-conn-status');
+      s.textContent = '測試中...';
+      try {
+        const r = await fetch('/api/notion/test', { method: 'POST' });
+        const d = await r.json();
+        s.textContent = d.ok ? '✅ 連線正常' : '❌ ' + d.message;
+      } catch (e) {
+        s.textContent = '❌ 無法連線';
+      }
+    });
+
+    // ── 同步開關 ──
+    document.getElementById('notion-sync-toggle').addEventListener('change', async (e) => {
+      const enabled = e.target.checked;
+      try {
+        await fetch('/api/notion/toggle-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled }),
+        });
+      } catch (err) {
+        e.target.checked = !enabled;
+      }
+    });
+
+    // ── 立即同步 ──
+    document.getElementById('btn-sync-now').addEventListener('click', async () => {
+      const resEl = document.getElementById('sync-result');
+      resEl.textContent = '同步中...';
+      try {
+        const preview = await fetch('/api/notion/sync-preview').then(r => r.json());
+        if (preview.first_sync) {
+          if (!confirm(
+            '第一次同步：\n\n' +
+            '• 從 Notion 拉約 ' + preview.notion_count + ' 筆任務進 Tindo\n' +
+            '• 把 Tindo 本機 ' + preview.local_to_push + ' 筆任務推到 Notion\n' +
+            '  （會建立新 page、寫入 Tindo ID 欄位）\n\n' +
+            '這是不可逆的操作，要繼續嗎？'
+          )) { resEl.textContent = '已取消'; return; }
+        }
+        const r = await fetch('/api/notion/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirmed: true }),
+        });
+        const d = await r.json();
+        if (d.error) {
+          resEl.textContent = '❌ ' + d.error;
+        } else {
+          const p = d.pull || {}, pu = d.push || {};
+          resEl.textContent = '✅ 同步完成 — 拉入 ' + (p.pulled_new||0) + ' 筆新、更新 ' + (p.pulled_updated||0) + ' 筆，衝突 ' + (p.conflicts_created||0) + ' 筆；推出 ' + (pu.pushed_new||0) + ' 筆新、更新 ' + (pu.pushed_updated||0) + ' 筆';
+          loadConflictCount();
+          loadStatus();
+        }
+      } catch (e) {
+        resEl.textContent = '❌ ' + e.message;
+      }
+    });
+
+    // ── 查看衝突 ──
+    document.getElementById('btn-view-conflicts').addEventListener('click', async () => {
+      const r = await fetch('/api/notion/conflicts').then(r => r.json());
+      if (r.length === 0) {
+        alert('目前沒有同步衝突');
+      } else {
+        alert('衝突任務（' + r.length + ' 筆）：\n\n' +
+          r.map(t => '• (衝突版本) ' + t.title).join('\n') +
+          '\n\n請回到主畫面 TodoList 處理這些任務（⚠️ 標記），決定保留哪個版本後刪除另一個。'
+        );
+      }
+    });
+
+    async function loadConflictCount() {
+      const r = await fetch('/api/notion/conflicts').then(r => r.json());
+      document.getElementById('conflict-count').textContent = Array.isArray(r) ? r.length : 0;
+    }
+
+    async function loadStatus() {
+      const r = await fetch('/api/notion/status').then(r => r.json());
+      const s = document.getElementById('notion-conn-status');
+      if (!r.sync_enabled) {
+        s.textContent = '⚪ 同步未啟用';
+      } else if (r.last_sync_result === 'ok') {
+        s.textContent = '🟢 已連線';
+      } else if (r.last_sync_result && r.last_sync_result.startsWith('error')) {
+        s.textContent = '🔴 ' + r.last_sync_result;
+      } else {
+        s.textContent = '🟡 待首次同步';
+      }
+      document.getElementById('notion-sync-toggle').checked = r.sync_enabled;
+      document.getElementById('notion-last-sync').textContent = r.last_sync_at || '—';
+    }
+
+    loadStatus();
+    loadConflictCount();
+
+    // ── Gmail ──────────────────────────
+
+    async function loadGmailStatus() {
+      try {
+        const resp = await fetch('/api/gmail/status');
+        const data = await resp.json();
+        document.getElementById('gmail-auth-status').textContent =
+          data.is_authenticated ? '已授權' : '未授權';
+        document.getElementById('btn-gmail-connect').style.display = data.is_authenticated ? 'none' : '';
+        document.getElementById('btn-gmail-disconnect').style.display = data.is_authenticated ? '' : 'none';
+        document.getElementById('gmail-sync-toggle').checked = data.sync_enabled;
+      } catch(e) {}
+    }
+
+    document.getElementById('btn-gmail-connect').addEventListener('click', async () => {
+      try {
+        const resp = await fetch('/api/gmail/auth-url');
+        const data = await resp.json();
+        window.open(data.auth_url, 'gmail-oauth', 'width=600,height=700');
+        setTimeout(loadGmailStatus, 30000);
+      } catch(e) { alert('無法取得授權網址'); }
+    });
+
+    document.getElementById('btn-gmail-disconnect').addEventListener('click', async () => {
+      if (!confirm('確定登出 Gmail？')) return;
+      await fetch('/api/gmail/sign-out', {method:'POST'});
+      loadGmailStatus();
+    });
+
+    document.getElementById('gmail-sync-toggle').addEventListener('change', async (e) => {
+      await fetch('/api/settings/gmail-sync', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({sync_enabled: e.target.checked}),
+      });
+    });
+
+    loadGmailStatus();
+  </script>
+</body>
+</html>

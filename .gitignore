@@ -1,0 +1,10 @@
+settings.json
+data/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.pdf
+restart_doubao.sh
+clip_*.png
+*.db

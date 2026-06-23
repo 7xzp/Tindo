@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tindo</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" sizes="1024x1024" href="/static/icon-1024.png">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <span class="logo">Tindo</span>
+    <nav class="view-tabs">
+      <button class="view-tab active" data-view="calendar">月曆 1</button>
+      <button class="view-tab" data-view="todolist">代辦 2</button>
+      <button class="view-tab" data-view="tinder">抉擇 3<span id="tinder-badge" class="badge hidden">0</span></button>
+    </nav>
+    <button class="btn-refresh-header" id="btn-refresh" title="手動刷新 Gmail">🔄</button>
+    <button class="btn-add" id="btn-open-import-modal">📥 導入行程</button>
+    <button class="btn-add" id="btn-open-add-modal">+ 新增任務</button>
+    <span id="notion-status-icon" title="Notion 同步未啟用">⚪</span>
+    <span id="gmail-status-icon" title="Gmail 同步未啟用">⚪</span>
+    <span id="gmail-added-badge" class="badge gmail-badge hidden" title="AI 自動加入的任務">0</span>
+
+  <!-- AI 新增任務詳情面板 -->
+  <div class="panel-overlay hidden" id="gmail-added-panel">
+    <div class="modal" style="max-width:550px;max-height:80vh;overflow-y:auto;">
+      <div class="modal-header">
+        <h2 class="modal-title">AI 自動加入的任務</h2>
+        <button class="modal-close" id="btn-close-gmail-panel">✕</button>
+      </div>
+      <div id="gmail-added-list" style="font-size:0.85rem;"></div>
+    </div>
+  </div>
+    <span id="gmail-status-icon" title="Gmail 同步狀態">⚪</span>
+  </header>
+
+  <!-- 月曆視圖 -->
+  <section id="view-calendar" class="view-section">
+    <div class="cal-sticky-header">
+      <span class="cal-month-label" id="cal-month-label"></span>
+      <span class="cal-today-relative" id="cal-today-relative"></span>
+    </div>
+    <div id="calendar-scroll-container">
+      <div id="calendar-grid"></div>
+    </div>
+  </section>
+
+  <!-- 代辦視圖 -->
+  <section id="view-todolist" class="view-section hidden">
+    <div id="todolist-container"></div>
+  </section>
+
+  <!-- 抉擇視圖 -->
+  <section id="view-tinder" class="view-section hidden">
+    <div class="tinder-container">
+      <div class="tinder-header">
+        <h2 id="tinder-pool-title">需要你決定的事</h2>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button class="tinder-pool-btn" id="btn-toggle-history" style="font-size:0.78rem;">歷史</button>
+          <span id="tinder-count" class="tinder-count">0 個待處理</span>
+        </div>
+      </div>
+      <div class="tinder-history hidden" id="tinder-history"></div>
+      <div class="tinder-pools">
+        <button class="tinder-pool-btn active" data-pool="all">全部</button>
+        <button class="tinder-pool-btn" data-pool="invite">📩 邀請</button>
+        <button class="tinder-pool-btn" data-pool="task">📋 任務</button>
+        <button class="tinder-pool-btn" data-pool="skipped">⏳ 之後</button>
+      </div>
+      <div class="tinder-stack" id="tinder-stack"></div>
+      <div class="tinder-empty hidden" id="tinder-empty">
+        <span>沒有待處理的事項了</span>
+      </div>
+      <div class="tinder-actions">
+        <button class="tinder-btn-skip" data-action="archive">← 暫緩</button>
+        <button class="tinder-btn-later" data-action="skip">↑ 之後再說</button>
+        <button class="tinder-btn-do" data-action="do">要處理 →</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 導入行程 modal -->
+  <div class="modal-overlay hidden" id="import-modal">
+    <div class="modal" role="dialog">
+      <div class="modal-header">
+        <h2 class="modal-title">導入行程</h2>
+        <button class="modal-close" id="btn-close-import">&times;</button>
+      </div>
+      <div id="import-step-upload">
+        <div class="form-field">
+          <label class="form-label">貼上行程文字</label>
+          <textarea class="form-textarea" id="import-text-input" placeholder="直接貼上行程內容，例如：&#10;6/20 09:00 高鐵到台北&#10;6/20 14:00 客戶會議&#10;6/21 10:00 展覽會場布置" rows="5"></textarea>
+        </div>
+        <div style="text-align:center;color:var(--text-3);margin:8px 0;font-size:0.8rem;">— 或 —</div>
+        <div class="form-field">
+          <label class="form-label">上傳 PDF 或圖片</label>
+          <div class="import-dropzone" id="import-dropzone">
+            <span>拖放檔案到這裡，或點擊選擇</span>
+            <input type="file" id="import-file-input" accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp" style="display:none">
+          </div>
+          <div id="import-file-name" style="font-size:0.8rem;color:var(--text-2);margin-top:8px;"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="btn-import-cancel">取消</button>
+          <button class="btn btn-primary" id="btn-import-start">開始解析</button>
+        </div>
+      </div>
+      <div id="import-step-loading" class="hidden" style="padding:48px 0;text-align:center;">
+        <p class="loading-text">AI 分析中...</p>
+      </div>
+      <div id="import-step-result" class="hidden">
+        <div class="form-field">
+          <label class="form-label" id="import-result-label">找到 N 個事件</label>
+          <div id="import-event-list" style="max-height:400px;overflow-y:auto;"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="btn-import-back">返回</button>
+          <button class="btn btn-primary" id="btn-import-add-all">全部加入</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新增任務 modal -->
+  <div class="modal-overlay hidden" id="add-task-modal">
+    <div class="modal" role="dialog" aria-labelledby="add-task-title">
+
+      <!-- Step 1: 輸入 -->
+      <div id="modal-step-input">
+        <div class="modal-header">
+          <h2 class="modal-title" id="add-task-title">新增任務</h2>
+          <button class="modal-close" id="btn-close-add" aria-label="關閉">✕</button>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="input-raw-text">描述</label>
+          <textarea class="form-textarea" id="input-raw-text" placeholder="例如: 下週五前幫小明看簡報，大概要花 1 小時" rows="3"></textarea>
+        </div>
+        <div class="form-field" style="display:flex;gap:12px;">
+          <div style="flex:1;">
+            <label class="form-label" for="input-timezone">時區 / 地區</label>
+            <div style="display:flex;gap:6px;">
+              <select class="form-input" id="input-timezone" style="flex:1;">
+                <option value="Asia/Hong_Kong">香港 UTC+8</option>
+                <option value="Asia/Shanghai">肇慶 UTC+8</option>
+                <option value="Asia/Tokyo">東京 UTC+9</option>
+                <option value="Asia/Taipei">台北 UTC+8</option>
+                <option value="Asia/Singapore">新加坡 UTC+8</option>
+              </select>
+              <input type="text" class="form-input" id="input-timezone-custom" placeholder="自訂..." style="width:80px;">
+            </div>
+          </div>
+        </div>
+        <div class="form-field">
+          <label class="form-label">類型</label>
+          <div class="segmented" role="tablist" id="input-event-type-segment">
+            <div class="segmented-item active" data-type="ddl" role="tab" aria-selected="true">
+              <span class="seg-icon">⏰</span><span>截止</span>
+            </div>
+            <div class="segmented-item" data-type="event" role="tab" aria-selected="false">
+              <span class="seg-icon">📍</span><span>事件</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="btn-cancel-input">取消</button>
+          <button class="btn btn-primary" id="btn-parse">解析 ✨</button>
+        </div>
+      </div>
+
+      <!-- Step 2: Loading -->
+      <div id="modal-step-loading" class="hidden" style="padding:48px 0;text-align:center;">
+        <p class="loading-text">AI 思考中...</p>
+      </div>
+
+      <!-- Step 3: 確認卡片 -->
+      <div id="modal-step-confirm" class="hidden">
+        <div class="modal-header">
+          <h2 class="modal-title">確認任務</h2>
+          <button class="modal-close" id="btn-close-add-2" aria-label="關閉">✕</button>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label" for="confirm-title">標題</label>
+          <input type="text" class="form-input" id="confirm-title">
+        </div>
+
+        <div class="form-field">
+          <label class="form-label">類型</label>
+          <div class="segmented" role="tablist" id="event-type-segment">
+            <div class="segmented-item active" data-type="ddl" role="tab" aria-selected="true">
+              <span class="seg-icon">⏰</span><span>截止</span>
+            </div>
+            <div class="segmented-item" data-type="event" role="tab" aria-selected="false">
+              <span class="seg-icon">📍</span><span>事件</span>
+            </div>
+          </div>
+          <input type="hidden" id="confirm-event-type" value="ddl">
+        </div>
+
+        <div class="form-field" data-show-for="ddl">
+          <label class="form-label" for="confirm-deadline">截止時間</label>
+          <div class="datetime-wrap">
+            <input type="datetime-local" class="form-input" id="confirm-deadline">
+          </div>
+        </div>
+
+        <div class="form-field" data-show-for="event" style="display:none">
+          <label class="form-label" for="confirm-event-time">活動時間</label>
+          <div class="datetime-wrap">
+            <input type="datetime-local" class="form-input" id="confirm-event-time">
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label" for="confirm-estimated">預估時長</label>
+          <div class="input-with-suffix">
+            <input type="number" class="form-input" id="confirm-estimated" value="60" min="5" step="5">
+            <span class="suffix">分鐘</span>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label">急迫度</label>
+          <div class="rating-row">
+            <div class="rating-dots rating-urgency" id="confirm-urgency" data-value="3">
+              <div class="rating-dot" data-level="1"></div>
+              <div class="rating-dot" data-level="2"></div>
+              <div class="rating-dot" data-level="3"></div>
+              <div class="rating-dot" data-level="4"></div>
+              <div class="rating-dot" data-level="5"></div>
+            </div>
+            <span class="rating-value" id="confirm-urgency-value">3 / 5</span>
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label class="form-label">工作量</label>
+          <div class="rating-row">
+            <div class="rating-dots rating-workload" id="confirm-workload" data-value="2">
+              <div class="rating-dot" data-level="1"></div>
+              <div class="rating-dot" data-level="2"></div>
+              <div class="rating-dot" data-level="3"></div>
+              <div class="rating-dot" data-level="4"></div>
+              <div class="rating-dot" data-level="5"></div>
+            </div>
+            <span class="rating-value" id="confirm-workload-value">2 / 5</span>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="form-field">
+          <div class="ai-summary-header">
+            <label class="form-label" for="confirm-summary" style="margin:0">摘要</label>
+            <span class="ai-badge">AI 生成</span>
+          </div>
+          <textarea class="form-textarea" id="confirm-summary"></textarea>
+        </div>
+
+        <!-- AI 對話修正區 -->
+        <div class="ai-refine-box">
+          <div class="ai-refine-header">
+            <span class="ai-badge">AI</span>
+            <span class="ai-refine-hint">解析有錯？跟 AI 說怎麼改</span>
+          </div>
+          <div class="ai-refine-row">
+            <input type="text" class="form-input ai-refine-input"
+                   id="ai-refine-input"
+                   placeholder="例如：不是下週五，是這週五">
+            <button class="btn-ai-refine" id="btn-ai-refine">
+              <span class="btn-ai-refine-label">讓 AI 改</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="btn-add-back">返回</button>
+          <button class="btn btn-primary" id="btn-add-submit">加入</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 排程 modal（新增）-->
+  <div class="modal-overlay hidden" id="schedule-modal">
+    <div class="modal modal-wide" role="dialog" aria-labelledby="schedule-title">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title" id="schedule-title">排程任務</h2>
+          <div class="modal-subtitle" id="schedule-subtitle"></div>
+        </div>
+        <button class="modal-close" id="btn-close-schedule" aria-label="關閉">✕</button>
+      </div>
+
+      <!-- 第一段:選日期 -->
+      <div class="schedule-section">
+        <div class="schedule-question">你要哪一天做?</div>
+        <div class="day-cards-row">
+          <button class="day-pager" id="day-pager-prev" aria-label="往前">◀</button>
+          <div class="day-cards" id="day-cards-container"></div>
+          <button class="day-pager" id="day-pager-next" aria-label="往後">▶</button>
+        </div>
+      </div>
+
+      <!-- 第二段:選時段 -->
+      <div class="schedule-section hidden" id="time-section">
+        <div class="schedule-divider"></div>
+        <div class="schedule-question" id="time-question"></div>
+        <div class="day-timeline" id="day-timeline"></div>
+        <div class="time-controls">
+          <label class="time-control">
+            <span class="form-label">開始時間</span>
+            <select id="schedule-start-time"></select>
+          </label>
+          <label class="time-control">
+            <span class="form-label">時長</span>
+            <select id="schedule-duration">
+              <option value="15">15 分鐘</option>
+              <option value="30">30 分鐘</option>
+              <option value="45">45 分鐘</option>
+              <option value="60">60 分鐘</option>
+              <option value="90">90 分鐘</option>
+              <option value="120">120 分鐘</option>
+              <option value="180">180 分鐘</option>
+              <option value="custom">自訂...</option>
+            </select>
+            <input type="number" id="schedule-duration-custom" class="form-input"
+                   placeholder="分鐘" min="5" step="5" style="display:none; margin-top:6px;">
+          </label>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="btn-schedule-cancel">取消</button>
+        <button class="btn btn-secondary" id="btn-schedule-later">待排程</button>
+        <button class="btn btn-primary" id="btn-schedule-confirm" disabled>確認排程</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 日詳情 modal -->
+  <div class="day-detail-overlay hidden" id="day-detail-overlay">
+    <div class="day-detail-modal">
+      <div class="day-detail-header">
+        <div>
+          <h1 id="day-detail-title"></h1>
+          <span class="day-detail-weekday" id="day-detail-weekday"></span>
+          <span class="day-detail-relative" id="day-detail-relative"></span>
+        </div>
+        <div>
+          <button class="btn-primary" id="btn-add-on-this-day">+ 加任務</button>
+          <button class="btn-close" id="btn-day-detail-close">&times;</button>
+        </div>
+      </div>
+      <div class="day-detail-body">
+        <div class="day-detail-timeline" id="day-detail-timeline"></div>
+        <div class="day-detail-side">
+          <h3>未指定時間</h3>
+          <div id="day-detail-unscheduled">無</div>
+          <h3>當日統計</h3>
+          <div class="day-detail-stats" id="day-detail-stats"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 任務詳情 panel -->
+  <div class="panel-overlay hidden" id="task-detail-panel">
+    <div class="task-detail-card">
+      <button class="btn-close" id="btn-close-task-detail">&times;</button>
+      <h2 id="task-detail-title"></h2>
+      <div id="task-detail-body"></div>
+      <div class="task-detail-actions">
+        <button class="btn-primary" id="btn-edit-from-detail">編輯</button>
+        <button class="btn-primary" id="btn-schedule-from-detail">排程</button>
+        <button class="btn-danger" id="btn-delete-task">刪除</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+  <script src="/static/todolist.js"></script>
+  <script src="/static/calendar.js"></script>
+  <script src="/static/tinder.js"></script>
+</body>
+</html>
