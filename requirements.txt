@@ -2,3 +2,9 @@ flask==3.1.2
 openai==1.107.3
 python-dateutil==2.9.0
 notion-client==2.4.0
+google-auth==2.34.0
+google-auth-oauthlib==1.2.1
+google-api-python-client==2.151.0
+pdfplumber==0.11.4
+pytesseract==0.3.13
+Pillow==11.1.0

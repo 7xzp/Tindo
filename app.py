@@ -71,11 +71,14 @@ def background_sync_loop():
 
 if __name__ == "__main__":
     app = create_app()
-    cfg = get_server_config()
 
     # 背景同步線程
     sync_thread = threading.Thread(target=background_sync_loop, daemon=True)
     sync_thread.start()
 
-    print(f"Tindo 已啟動 → http://{cfg['host']}:{cfg['port']}")
-    app.run(host=cfg["host"], port=cfg["port"], debug=False)
+    import os
+    port = int(os.environ.get("PORT", 5088))
+    host = "0.0.0.0" if os.environ.get("RENDER") else get_server_config()["host"]
+
+    print(f"Tindo 已啟動 → http://{host}:{port}")
+    app.run(host=host, port=port, debug=False)
