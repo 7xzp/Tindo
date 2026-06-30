@@ -638,82 +638,69 @@ document.getElementById('day-pager-next').addEventListener('click', function() {
 
 // ── 時段選擇器 ──────────────────────────
 
-async function renderTimeSection() {
-  document.getElementById('time-section').classList.remove('hidden');
+var _singleTtp = null;
+
+function renderTimeSection() {
   var date = scheduleState.selectedDate;
-  var wd = dayOfWeekZh(date);
-  document.getElementById('time-question').textContent = parseInt(date.slice(5,7)) + '/' + parseInt(date.slice(8,10)) + ' (' + wd + ') 你要幾點開始做?';
+  var host = document.getElementById("time-section");
+  host.classList.remove("hidden");
+  host.innerHTML = "";
+  document.getElementById("btn-schedule-confirm").classList.add("hidden");
+  document.getElementById("btn-schedule-later").classList.add("hidden");
 
-  var startSel = document.getElementById('schedule-start-time');
-  startSel.innerHTML = '';
-  for (var h = 6; h < 24; h++) {
-    for (var m = 0; m < 60; m += 15) {
-      var t = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
-      var opt = document.createElement('option');
-      opt.value = t; opt.textContent = t;
-      startSel.appendChild(opt);
+  var dayData = scheduleState.daysData[date] || { tasks: [] };
+  var busyMap = {};
+  busyMap[date] = (dayData.tasks || []).filter(function(t) { return t.scheduled_time; }).map(function(t) {
+    var hhmm = (t.scheduled_time || "").slice(0,5);
+    var dur = t.estimated_minutes || 60;
+    var parts = hhmm.split(":").map(Number);
+    var endMin = parts[0] * 60 + (parts[1] || 0) + dur;
+    var endHH = String(Math.floor(endMin / 60) % 24).padStart(2,'0');
+    var endMM = String(endMin % 60).padStart(2,'0');
+    return { start: hhmm, end: endHH + ":" + endMM, title: t.title || "" };
+  });
+
+  if (_singleTtp) _singleTtp.destroy();
+  _singleTtp = window.TindoTimePicker.mount(host, {
+    task: {
+      title: scheduleState.taskTitle || "",
+      totalMin: scheduleState.estimatedMinutes || 60,
+      deadline: scheduleState.deadline || date,
+    },
+    now: new Date(),
+    busyByDate: busyMap,
+    singleDate: date,
+    showHeader: false,
+    onConfirm: function(segments) {
+      segments.forEach(function(seg) {
+        if (scheduleState.context === "create" && scheduleState.pendingTaskData) {
+          var payload = Object.assign({}, scheduleState.pendingTaskData, {
+            scheduled_date: seg.date,
+            scheduled_time: seg.start,
+            estimated_minutes: seg.minutes,
+            status: "scheduled",
+            decision: "do",
+          });
+          fetch("/api/tasks", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(payload) });
+        } else {
+          fetch("/api/tasks/" + scheduleState.taskId + "/schedule", {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ scheduled_date: seg.date, scheduled_time: seg.start, estimated_minutes: seg.minutes }),
+          });
+        }
+      });
+      if (_singleTtp) _singleTtp.destroy();
+      _singleTtp = null;
+      closeScheduleModal();
+      if (typeof loadTodoList === "function") loadTodoList();
+      if (typeof renderInitialCalendar === "function") renderInitialCalendar();
+    },
+    onCancel: function() {
+      if (_singleTtp) _singleTtp.destroy();
+      _singleTtp = null;
     }
-  }
-
-  var durSel = document.getElementById('schedule-duration');
-  var presetDur = scheduleState.estimatedMinutes || 60;
-  var presetVals = ['15','30','45','60','90','120','180'];
-  if (presetVals.indexOf(String(presetDur)) >= 0) {
-    durSel.value = String(presetDur);
-    document.getElementById('schedule-duration-custom').style.display = 'none';
-  } else {
-    durSel.value = 'custom';
-    document.getElementById('schedule-duration-custom').style.display = '';
-    document.getElementById('schedule-duration-custom').value = presetDur;
-  }
-
-  // AI 回來前不設預設值，顯示載入中
-  startSel.value = '';
-  document.getElementById('time-question').textContent =
-    parseInt(date.slice(5,7)) + '/' + parseInt(date.slice(8,10)) + ' (' + wd + ') · AI 分析最佳時段中...';
-  renderDayTimeline();
-
-  // 異步請求 AI 推薦
-  var data = scheduleState.daysData[date] || { tasks: [] };
-  var aiTime = null;
-  try {
-    var aiResp = await fetch('/api/recommend-slot', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        date: date,
-        task: {
-          title: scheduleState.taskTitle || '',
-          estimated_minutes: presetDur,
-          urgency: scheduleState.pendingTaskData ? scheduleState.pendingTaskData.urgency : 3,
-          workload: scheduleState.pendingTaskData ? scheduleState.pendingTaskData.workload : 2,
-          event_type: 'ddl',
-        },
-        existing_tasks: (data.tasks || []).map(function(t) { return { title: t.title, scheduled_time: t.scheduled_time, estimated_minutes: t.estimated_minutes, event_type: t.event_type }; }),
-      }),
-    });
-    var aiResult = await aiResp.json();
-    if (aiResult.recommended_time) {
-      aiTime = aiResult.recommended_time;
-      document.getElementById('time-question').textContent =
-        parseInt(date.slice(5,7)) + '/' + parseInt(date.slice(8,10)) + ' (' + wd + ') · AI 建議 ' + aiResult.recommended_time + ' — ' + aiResult.reason;
-    }
-  } catch(e) { /* 無視 */ }
-
-  // AI 失敗才用 fallback
-  if (!aiTime) {
-    aiTime = findFirstEmptySlot(date, presetDur) || '09:00';
-    document.getElementById('time-question').textContent =
-      parseInt(date.slice(5,7)) + '/' + parseInt(date.slice(8,10)) + ' (' + wd + ') 你要幾點開始做?';
-  }
-  startSel.value = aiTime;
-  renderDayTimeline();
-
-  startSel.onchange = renderDayTimeline;
-  durSel.onchange = onDurationChange;
-  document.getElementById('schedule-duration-custom').oninput = renderDayTimeline;
-
-  document.getElementById('btn-schedule-confirm').disabled = false;
+  });
 }
 
 function onDurationChange() {
@@ -893,6 +880,345 @@ function formatDeadlineShort(iso) {
   var d = new Date(iso);
   var pad = function(n) { return String(n).padStart(2,'0'); };
   return (d.getMonth()+1) + '/' + d.getDate() + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+
+// ── 拆分多天 ────────────────────────────
+
+let splitMode = false;
+let splitSelectedDays = [];  // ['2026-06-30', '2026-07-01', ...]
+let splitBlocks = {};       // {'2026-06-30': [{startMin:540, endMin:690}, ...], ...}
+let splitCurrentDayIdx = 0;
+let splitTotalMinutes = 0;
+
+var _ttpInstance = null;
+
+document.getElementById("btn-open-split").addEventListener("click", function() {
+  // 隱藏單日卡那一排 + 舊 split UI
+  var schedSection = document.querySelector(".schedule-section");
+  if (schedSection) schedSection.classList.add("hidden");
+  document.getElementById("time-section").classList.remove("hidden");
+  document.getElementById("time-section").innerHTML = "";
+  document.getElementById("btn-schedule-confirm").classList.add("hidden");
+  document.getElementById("btn-open-split").classList.add("hidden");
+  document.getElementById("btn-schedule-later").classList.add("hidden");
+
+  // 构建 busyByDate
+  var busyByDate = {};
+  Object.keys(scheduleState.daysData || {}).forEach(function(d) {
+    var tasks = (scheduleState.daysData[d] && scheduleState.daysData[d].tasks) || [];
+    busyByDate[d] = tasks.filter(function(t) { return t.scheduled_time; }).map(function(t) {
+      var hhmm = (t.scheduled_time || "").slice(0,5);
+      var dur = t.estimated_minutes || 60;
+      var parts = hhmm.split(":").map(Number);
+      var endMin = parts[0] * 60 + (parts[1] || 0) + dur;
+      var endHH = String(Math.floor(endMin / 60) % 24).padStart(2,'0');
+      var endMM = String(endMin % 60).padStart(2,'0');
+      return { start: hhmm, end: endHH + ":" + endMM, title: t.title || "" };
+    });
+  });
+
+  var deadlineVal = scheduleState.deadline || null;
+  var totalVal = Number(scheduleState.estimatedMinutes) || 60;
+  console.log("MOUNT deadline=" + deadlineVal + " totalMin=" + totalVal + " title=" + scheduleState.taskTitle);
+
+  var host = document.getElementById("time-section");
+  _ttpInstance = window.TindoTimePicker.mount(host, {
+    task: {
+      title: scheduleState.taskTitle || "",
+      totalMin: totalVal,
+      deadline: deadlineVal,
+    },
+    now: new Date(),
+    busyByDate: busyByDate,
+    showHeader: false,
+    onConfirm: function(segments) {
+      segments.forEach(function(seg) {
+        fetch("/api/tasks", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            title: (scheduleState.taskTitle || "") + " (" + (segments.indexOf(seg) + 1) + "/" + segments.length + ")",
+            event_type: "ddl",
+            scheduled_date: seg.date,
+            scheduled_time: seg.start,
+            estimated_minutes: seg.minutes,
+            status: "scheduled",
+            decision: "do",
+            source: "manual"
+          }),
+        });
+      });
+      if (_ttpInstance) _ttpInstance.destroy();
+      _ttpInstance = null;
+      closeScheduleModal();
+      if (typeof loadTodoList === "function") loadTodoList();
+      if (typeof renderInitialCalendar === "function") renderInitialCalendar();
+      // 还原单日卡
+      if (schedSection) schedSection.classList.remove("hidden");
+    },
+    onCancel: function() {
+      if (_ttpInstance) _ttpInstance.destroy();
+      _ttpInstance = null;
+      closeScheduleModal();
+      if (schedSection) schedSection.classList.remove("hidden");
+    }
+  });
+});
+
+function renderSplitDayChips() {
+  var container = document.getElementById("split-days-list");
+  var html = "";
+  for (var i = 0; i < scheduleState.daysToShow; i++) {
+    var date = addDaysStr(scheduleState.rangeStart, i);
+    var isSelected = splitSelectedDays.indexOf(date) >= 0;
+    var blocks = splitBlocks[date] || [];
+    var totalHrs = 0;
+    blocks.forEach(function(b) { totalHrs += (b.endMin - b.startMin) / 60; });
+    var isActive = splitSelectedDays.length > 0 && date === splitSelectedDays[splitCurrentDayIdx];
+    var cls = "split-day-chip" + (isSelected ? " selected" : "") + (isActive ? " active" : "");
+    html += '<div class="' + cls + '" data-date="' + date + '">'
+      + date.slice(5) + (totalHrs > 0 ? ' <span class="chip-hrs">' + totalHrs.toFixed(1) + 'h</span>' : '')
+      + '</div>';
+  }
+  container.innerHTML = html;
+
+  container.querySelectorAll(".split-day-chip").forEach(function(chip) {
+    chip.addEventListener("click", function() {
+      var date = this.dataset.date;
+      var idx = splitSelectedDays.indexOf(date);
+      if (idx >= 0) {
+        splitSelectedDays.splice(idx, 1);
+        delete splitBlocks[date];
+      } else {
+        splitSelectedDays.push(date);
+        splitSelectedDays.sort();
+        if (!splitBlocks[date]) splitBlocks[date] = [];
+      }
+      renderSplitDayChips();
+      updateSplitProgress();
+      if (splitSelectedDays.length > 0) {
+        document.getElementById("split-editor").classList.remove("hidden");
+        splitCurrentDayIdx = 0;
+        renderSplitEditor();
+      }
+    });
+  });
+}
+
+function renderSplitEditor() {
+  if (splitSelectedDays.length === 0) return;
+  var date = splitSelectedDays[splitCurrentDayIdx];
+  document.getElementById("split-editor-date").textContent = date + " · 第 " + (splitCurrentDayIdx + 1) + "/" + splitSelectedDays.length + " 天";
+  document.getElementById("split-day-progress").textContent = splitCurrentDayIdx + 1 + "/" + splitSelectedDays.length;
+
+  var blocks = splitBlocks[date] || [];
+  var tl = document.getElementById("split-timeline");
+  var H = 30; // px per hour
+  var START_H = 7; // 預設從 7:00 開始
+  var END_H = 23;
+
+  // 既有排程
+  var dayData = scheduleState.daysData[date] || {};
+  var existing = (dayData.tasks || []).filter(function(t) { return t.scheduled_time; });
+
+  // 畫格線 + 既有任務
+  var html = "";
+  for (var h = START_H; h <= END_H; h++) {
+    html += '<div class="split-tl-hour" style="height:' + H + 'px"><span class="split-tl-hour-label">' + String(h).padStart(2,'0') + ':00</span></div>';
+  }
+  // 既有任務（灰色鎖定塊）
+  existing.forEach(function(t) {
+    var parts = t.scheduled_time.split(":").map(Number);
+    var startMin = parts[0] * 60 + (parts[1] || 0);
+    var endMin = startMin + (t.estimated_minutes || 60);
+    var top = ((startMin - START_H * 60) / 60) * H;
+    var ht = Math.max(20, ((endMin - startMin) / 60) * H);
+    if (startMin >= START_H * 60 && endMin <= END_H * 60) {
+      html += '<div class="split-tl-existing" style="top:' + top.toFixed(0) + 'px;height:' + ht.toFixed(0) + 'px">'
+        + '<span>' + t.scheduled_time.slice(0,5) + ' ' + escapeHtml(t.title || "") + '</span></div>';
+    }
+  });
+  // 你拖出的區塊
+  blocks.forEach(function(b, bi) {
+    var top = ((b.startMin - START_H * 60) / 60) * H;
+    var ht = Math.max(20, ((b.endMin - b.startMin) / 60) * H);
+    if (b.startMin >= START_H * 60) {
+      html += '<div class="split-tl-block" style="top:' + top.toFixed(0) + 'px;height:' + ht.toFixed(0) + 'px">'
+        + '<span class="block-label">' + fmtMinToHHMM(b.startMin) + ' – ' + fmtMinToHHMM(b.endMin) + ' (' + ((b.endMin - b.startMin) / 60).toFixed(1) + 'h)</span>'
+        + '<span class="block-del" data-idx="' + bi + '">✕</span>'
+        + '</div>';
+    }
+  });
+  // 今天：現在線 + 過去灰掉
+  var today = toDateStr(new Date());
+  if (date === today) {
+    var now = new Date();
+    var nowMin = now.getHours() * 60 + now.getMinutes();
+    var nowY = ((nowMin - START_H * 60) / 60) * H;
+    if (nowMin >= START_H * 60 && nowMin <= END_H * 60) {
+      html += '<div class="split-tl-now" data-time="' + String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + '" style="top:' + nowY.toFixed(0) + 'px"></div>';
+    }
+  }
+  tl.innerHTML = html;
+
+  // 刪除區塊
+  tl.querySelectorAll(".block-del").forEach(function(del) {
+    del.addEventListener("click", function(e) {
+      e.stopPropagation();
+      var bi = parseInt(this.dataset.idx);
+      var blks = splitBlocks[date] || [];
+      blks.splice(bi, 1);
+      renderSplitEditor();
+      renderSplitDayChips();
+      updateSplitProgress();
+    });
+  });
+
+  // 拖拽建立新區塊（15分吸附 + 浮標籤 + 過去禁用）
+  var dragging = false, dragStartY = 0, dragLabel = null;
+  tl.addEventListener("mousedown", function(e) {
+    if (e.target.closest(".split-tl-block") || e.target.closest(".block-del") || e.target.closest(".split-tl-existing")) return;
+    // 今天：不能拖到過去
+    if (date === today) {
+      var clickMin = START_H * 60 + Math.round((e.offsetY / H) * 60 / 15) * 15;
+      if (clickMin < nowMin) return;
+    }
+    dragging = true;
+    dragStartY = e.offsetY;
+    dragLabel = document.createElement("div");
+    dragLabel.className = "split-tl-draglabel";
+    dragLabel.style.top = e.offsetY + "px";
+    tl.appendChild(dragLabel);
+  });
+  tl.addEventListener("mousemove", function(e) {
+    if (!dragging) return;
+    var y1 = Math.min(dragStartY, e.offsetY);
+    var y2 = Math.max(dragStartY, e.offsetY);
+    var startMin = START_H * 60 + Math.round((y1 / H) * 60 / 15) * 15;
+    var endMin = START_H * 60 + Math.round((y2 / H) * 60 / 15) * 15;
+    if (endMin - startMin < 15) { endMin = startMin + 15; }
+    tl.querySelectorAll(".split-tl-preview").forEach(function(el) { el.remove(); });
+    var prev = document.createElement("div");
+    prev.className = "split-tl-block split-tl-preview";
+    prev.style.cssText = "top:" + ((startMin - START_H * 60) / 60 * H).toFixed(0) + "px;height:" + ((endMin - startMin) / 60 * H).toFixed(0) + "px;left:32px;right:4px;opacity:0.5;";
+    tl.appendChild(prev);
+    if (dragLabel) {
+      dragLabel.style.top = y1 + "px";
+      dragLabel.textContent = fmtMinToHHMM(startMin) + " – " + fmtMinToHHMM(endMin) + " · " + ((endMin - startMin) / 60).toFixed(1) + "h";
+    }
+  });
+  tl.addEventListener("mouseup", function(e) {
+    if (!dragging) return;
+    dragging = false;
+    tl.querySelectorAll(".split-tl-preview").forEach(function(el) { el.remove(); });
+    if (dragLabel) { dragLabel.remove(); dragLabel = null; }
+    var y1 = Math.min(dragStartY, e.offsetY);
+    var y2 = Math.max(dragStartY, e.offsetY);
+    var startMin = START_H * 60 + Math.round((y1 / H) * 60 / 15) * 15;
+    var endMin = START_H * 60 + Math.round((y2 / H) * 60 / 15) * 15;
+    if (endMin - startMin < 15) return;
+    // 不能排到過去
+    if (date === today && startMin < nowMin) return;
+    var blks = splitBlocks[date] || [];
+    blks.push({ startMin: startMin, endMin: endMin });
+    blks.sort(function(a, b) { return a.startMin - b.startMin; });
+    splitBlocks[date] = blks;
+    renderSplitEditor();
+    renderSplitDayChips();
+    updateSplitProgress();
+  });
+}
+
+document.getElementById("btn-split-prev-day").addEventListener("click", function() {
+  if (splitCurrentDayIdx > 0) { splitCurrentDayIdx--; renderSplitEditor(); }
+});
+document.getElementById("btn-split-next-day").addEventListener("click", function() {
+  if (splitCurrentDayIdx < splitSelectedDays.length - 1) { splitCurrentDayIdx++; renderSplitEditor(); }
+});
+
+function updateSplitProgress() {
+  var allocated = 0;
+  splitSelectedDays.forEach(function(d) {
+    (splitBlocks[d] || []).forEach(function(b) { allocated += (b.endMin - b.startMin); });
+  });
+  var totalMin = splitTotalMinutes;
+  var pct = totalMin > 0 ? Math.min(100, (allocated / totalMin) * 100) : 0;
+  var fill = document.getElementById("split-progress-fill");
+  var text = document.getElementById("split-progress-text");
+  fill.style.width = pct + "%";
+  var remaining = totalMin - allocated;
+  var remainingPct = totalMin > 0 ? (remaining / totalMin) * 100 : 100;
+  if (remainingPct > 50) fill.style.background = "#ef4444";
+  else if (remainingPct > 30) fill.style.background = "#fb923c";
+  else fill.style.background = "#4ade80";
+  text.textContent = (allocated / 60).toFixed(1) + "h / " + (totalMin / 60).toFixed(1) + "h  (尚餘 " + (remaining / 60).toFixed(1) + "h)";
+
+  // 0h 時禁用確認；超額警告
+  var btn = document.getElementById("btn-split-confirm");
+  if (allocated === 0) {
+    btn.disabled = true;
+    btn.style.opacity = "0.5";
+    text.textContent = (allocated / 60).toFixed(1) + "h / " + (totalMin / 60).toFixed(1) + "h  ⚠️ 請至少分配一個時段";
+  } else if (allocated > totalMin + 5) {
+    btn.disabled = false;
+    btn.style.opacity = "1";
+    fill.style.background = "#ef4444";
+    text.textContent = (allocated / 60).toFixed(1) + "h / " + (totalMin / 60).toFixed(1) + "h  ⚠️ 超出預估";
+  } else {
+    btn.disabled = false;
+    btn.style.opacity = "1";
+  }
+}
+
+document.getElementById("btn-split-confirm").addEventListener("click", async function() {
+  var subIdx = 1;
+  var total = 0;
+  splitSelectedDays.forEach(function(d) { total += (splitBlocks[d] || []).length; });
+  for (var i = 0; i < splitSelectedDays.length; i++) {
+    var date = splitSelectedDays[i];
+    var blocks = splitBlocks[date] || [];
+    for (var j = 0; j < blocks.length; j++) {
+      var b = blocks[j];
+      var minutes = b.endMin - b.startMin;
+      var title = (scheduleState.taskTitle || "任務") + " (" + subIdx + "/" + total + ")";
+      try {
+        if (scheduleState.context === "create") {
+          var payload = Object.assign({}, scheduleState.pendingTaskData || {}, {
+            title: title,
+            scheduled_date: date,
+            scheduled_time: fmtMinToHHMM(b.startMin),
+            estimated_minutes: minutes,
+            status: "scheduled",
+            decision: "do",
+          });
+          await fetch("/api/tasks", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(payload) });
+        } else {
+          await fetch("/api/tasks", { method: "POST", headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ title: title, event_type: "ddl", scheduled_date: date, scheduled_time: fmtMinToHHMM(b.startMin), estimated_minutes: minutes, status: "scheduled", decision: "do", source: "manual" }) });
+        }
+      } catch(e) {}
+      subIdx++;
+    }
+  }
+  // Reset
+  splitMode = false;
+  splitSelectedDays = [];
+  splitBlocks = {};
+  document.getElementById("split-section").classList.add("hidden");
+  document.getElementById("split-editor").classList.add("hidden");
+  document.getElementById("btn-split-confirm").classList.add("hidden");
+  document.getElementById("btn-schedule-confirm").classList.remove("hidden");
+  document.getElementById("btn-open-split").classList.remove("hidden");
+  document.getElementById("btn-schedule-later").classList.remove("hidden");
+  closeScheduleModal();
+  if (typeof loadTodoList === "function") loadTodoList();
+  if (typeof renderInitialCalendar === "function") renderInitialCalendar();
+});
+
+function fmtMinToHHMM(min) {
+  var h = Math.floor(min / 60) % 24;
+  var m = min % 60;
+  return String(h).padStart(2,'0') + ":" + String(m).padStart(2,'0');
 }
 
 // ── 舊版兼容: openScheduleModalForTask ─────

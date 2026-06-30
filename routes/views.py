@@ -11,3 +11,5 @@ def index():
 @views_bp.route("/settings")
 def settings_page():
     return render_template("settings.html")
+
+

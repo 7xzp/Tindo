@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tindo</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/ttp.css">
   <link rel="apple-touch-icon" sizes="1024x1024" href="/static/icon-1024.png">
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -319,10 +320,37 @@
         </div>
       </div>
 
+      <!-- 第三段:拆分多天 -->
+      <div class="schedule-section hidden" id="split-section">
+        <div class="schedule-divider"></div>
+        <div class="schedule-question">拆分到多天：<span id="split-task-title"></span></div>
+        <div class="split-days-list" id="split-days-list"></div>
+        <div class="split-editor hidden" id="split-editor">
+          <div class="schedule-divider"></div>
+          <div class="split-editor-header">
+            <span>選時段 · </span><span id="split-editor-date"></span>
+          </div>
+          <div class="split-timeline" id="split-timeline"></div>
+          <div class="split-editor-actions">
+            <button class="btn btn-secondary" id="btn-split-prev-day">← 上一天</button>
+            <span id="split-day-progress">1/3</span>
+            <button class="btn btn-secondary" id="btn-split-next-day">下一天 →</button>
+          </div>
+        </div>
+        <div class="split-progress">
+          <div class="split-progress-bar">
+            <div class="split-progress-fill" id="split-progress-fill" style="width:0%"></div>
+          </div>
+          <span class="split-progress-text" id="split-progress-text">0h / 0h</span>
+        </div>
+      </div>
+
       <div class="modal-actions">
         <button class="btn btn-secondary" id="btn-schedule-cancel">取消</button>
         <button class="btn btn-secondary" id="btn-schedule-later">待排程</button>
+        <button class="btn btn-secondary" id="btn-open-split">拆分多天</button>
         <button class="btn btn-primary" id="btn-schedule-confirm" disabled>確認排程</button>
+        <button class="btn btn-primary hidden" id="btn-split-confirm">確認拆分</button>
       </div>
     </div>
   </div>
@@ -367,6 +395,7 @@
     </div>
   </div>
 
+  <script src="/static/ttp.js"></script>
   <script src="/static/app.js"></script>
   <script src="/static/todolist.js"></script>
   <script src="/static/calendar.js"></script>

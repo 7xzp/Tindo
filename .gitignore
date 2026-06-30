@@ -9,3 +9,5 @@ restart_doubao.sh
 clip_*.png
 *.db
 cloudflared
+.tunnel_url
+tindo-time-picker-inline.html

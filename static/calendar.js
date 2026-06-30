@@ -260,19 +260,22 @@ function renderCellRegions(timed) {
       gapMt = (tStart - prevEndMin) * pxPerMin;
     }
 
-    var cardH = Math.max(MIN_H, (t.estimated_minutes || 60) * pxPerMin);
-    // 開始時間只在第一個或前面有空檔時顯示
+    // 全天任務（>=8h 且 00:00）→ 緊湊顯示，不標時間
+    var isAllDay = (t.estimated_minutes || 0) >= 480 && t.scheduled_time === "00:00";
+    var timeLabel = isAllDay ? "全日" : t.scheduled_time.slice(0,5);
+    var cardH = isAllDay ? 28 : Math.max(MIN_H, (t.estimated_minutes || 60) * pxPerMin);
     var showStart = (i === 0) || (prevEndMin !== null && tStart > prevEndMin);
     var doneClass = t.status === 'done' ? ' done' : '';
+    var allDayClass = isAllDay ? ' all-day' : '';
 
     rows.push({
-      gapMt: gapMt,
+      gapMt: isAllDay ? 2 : gapMt,
       cardH: cardH,
       showStart: showStart,
-      startLabel: formatHHMM(tStart),
-      endLabel: formatHHMM(tEnd),
-      html: '<span class="ft-mobile-time">' + t.scheduled_time.slice(0,5) + '</span>'
-        + '<div class="ft-card event-' + t.event_type + ' urgency-' + (t.urgency || 3) + doneClass + '"'
+      startLabel: isAllDay ? "" : formatHHMM(tStart),
+      endLabel: isAllDay ? "" : formatHHMM(tEnd),
+      html: '<span class="ft-mobile-time">' + (isAllDay ? "" : t.scheduled_time.slice(0,5)) + '</span>'
+        + '<div class="ft-card event-' + t.event_type + ' urgency-' + (t.urgency || 3) + doneClass + allDayClass + '"'
         + ' data-task-id="' + t.id + '"'
         + ' style="min-height:' + cardH.toFixed(0) + 'px"'
         + ' onclick="event.stopPropagation(); showTaskDetail(' + t.id + ')">'
@@ -293,8 +296,8 @@ function renderCellRegions(timed) {
     if (i > 0) style += 'margin-top:' + (r.gapMt > 0 ? r.gapMt.toFixed(0) : 8) + 'px;';
     html += '<div class="ft-row" style="min-height:' + r.cardH.toFixed(0) + 'px;' + style + '">'
       + '<div class="ft-gutter">'
-      + (r.showStart ? '<span class="ft-time ft-time-start">' + r.startLabel + '</span>' : '')
-      + '<span class="ft-time ft-time-end">' + r.endLabel + '</span>'
+      + (r.showStart && r.startLabel ? '<span class="ft-time ft-time-start">' + r.startLabel + '</span>' : '')
+      + (r.endLabel ? '<span class="ft-time ft-time-end">' + r.endLabel + '</span>' : '')
       + '</div>'
       + '<div class="ft-card-wrap">' + r.html + '</div>'
       + '</div>';
